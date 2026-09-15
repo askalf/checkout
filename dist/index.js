@@ -41755,6 +41755,9 @@ async function getSource(settings) {
                 throw new Error(`Input 'ssh-key' not supported when falling back to download using the GitHub REST API. To create a local Git repository instead, add Git ${MinimumGitVersion} or higher to the PATH.`);
             }
             await downloadRepository(settings.authToken, settings.repositoryOwner, settings.repositoryName, settings.ref, settings.commit, settings.repositoryPath, settings.githubServerUrl);
+            // Set the commit output. The REST API fallback does not create a local
+            // Git repository, so the SHA can only come from the resolved settings.
+            setOutput('commit', settings.commit);
             return;
         }
         // Save state for POST action

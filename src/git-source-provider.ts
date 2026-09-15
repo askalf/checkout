@@ -99,6 +99,10 @@ export async function getSource(settings: IGitSourceSettings): Promise<void> {
         settings.repositoryPath,
         settings.githubServerUrl
       )
+
+      // Set the commit output. The REST API fallback does not create a local
+      // Git repository, so the SHA can only come from the resolved settings.
+      core.setOutput('commit', settings.commit)
       return
     }
 
