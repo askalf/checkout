@@ -45,16 +45,17 @@ jest.unstable_mockModule('../src/github-api-helper.js', () => ({
   }))
 }))
 
+const mockCreateAuthHelper = jest.fn(() => ({
+  configureAuth: jest.fn(),
+  configureGlobalAuth: jest.fn(),
+  configureSubmoduleAuth: jest.fn(),
+  configureTempGlobalConfig: jest.fn(),
+  removeAuth: jest.fn(),
+  removeGlobalAuth: jest.fn(),
+  removeGlobalConfig: jest.fn()
+}))
 jest.unstable_mockModule('../src/git-auth-helper.js', () => ({
-  createAuthHelper: jest.fn(() => ({
-    configureAuth: jest.fn(),
-    configureGlobalAuth: jest.fn(),
-    configureSubmoduleAuth: jest.fn(),
-    configureTempGlobalConfig: jest.fn(),
-    removeAuth: jest.fn(),
-    removeGlobalAuth: jest.fn(),
-    removeGlobalConfig: jest.fn()
-  }))
+  createAuthHelper: mockCreateAuthHelper
 }))
 
 jest.unstable_mockModule('../src/git-directory-helper.js', () => ({
@@ -88,6 +89,8 @@ type IGitSourceSettings =
   import('../src/git-source-settings.js').IGitSourceSettings
 
 const commitSha = '1234567890123456789012345678901234567890'
+const commitSha256 =
+  '1234567890123456789012345678901234567890123456789012345678901234'
 
 function getSettings(): IGitSourceSettings {
   return {
@@ -190,6 +193,97 @@ describe('git-source-provider tests', () => {
     expect(mockSetOutput).toHaveBeenCalledWith('commit', undefined)
   })
 
+  it('sets the commit output when downloading a SHA-256 object format repository', async () => {
+    // Arrange
+    mockCreateCommandManager.mockImplementation(async () => {
+      throw new Error('Git is not installed')
+    })
+    const settings = getSettings()
+    // getInputs() accepts a 64 hex character ref as a commit, for sha256 repositories
+    settings.commit = commitSha256
+
+    // Act
+    await gitSourceProvider.getSource(settings)
+
+    // Assert
+    expect(mockDownloadRepository).toHaveBeenCalledWith(
+      settings.authToken,
+      settings.repositoryOwner,
+      settings.repositoryName,
+      settings.ref,
+      commitSha256,
+      settings.repositoryPath,
+      settings.githubServerUrl
+    )
+    expect(mockSetOutput).toHaveBeenCalledWith('commit', commitSha256)
+  })
+
+  it('sets the commit output after the repository has been downloaded', async () => {
+    // Arrange
+    mockCreateCommandManager.mockImplementation(async () => {
+      throw new Error('Git is not installed')
+    })
+    const settings = getSettings()
+
+    // Act
+    await gitSourceProvider.getSource(settings)
+
+    // Assert
+    expect(mockSetOutput).toHaveBeenCalledWith('commit', commitSha)
+    expect(mockSetOutput.mock.invocationCallOrder[0]).toBeGreaterThan(
+      mockDownloadRepository.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('does not set the commit output when the REST API download fails (control)', async () => {
+    // Arrange
+    mockCreateCommandManager.mockImplementation(async () => {
+      throw new Error('Git is not installed')
+    })
+    mockDownloadRepository.mockImplementation(async () => {
+      throw new Error('Download failed')
+    })
+    const settings = getSettings()
+
+    // Act
+    await expect(gitSourceProvider.getSource(settings)).rejects.toThrow(
+      'Download failed'
+    )
+
+    // Assert
+    expect(mockSetOutput).not.toHaveBeenCalledWith(
+      'commit',
+      expect.anything() as unknown as string
+    )
+    mockDownloadRepository.mockReset()
+  })
+
+  it('does not download or set the commit output when an input is not supported by the REST API fallback (control)', async () => {
+    // Arrange
+    mockCreateCommandManager.mockImplementation(async () => {
+      throw new Error('Git is not installed')
+    })
+    const submoduleSettings = getSettings()
+    submoduleSettings.submodules = true
+    const sshKeySettings = getSettings()
+    sshKeySettings.sshKey = 'ssh-key'
+
+    // Act
+    await expect(
+      gitSourceProvider.getSource(submoduleSettings)
+    ).rejects.toThrow(`Input 'submodules' not supported`)
+    await expect(gitSourceProvider.getSource(sshKeySettings)).rejects.toThrow(
+      `Input 'ssh-key' not supported`
+    )
+
+    // Assert
+    expect(mockDownloadRepository).not.toHaveBeenCalled()
+    expect(mockSetOutput).not.toHaveBeenCalledWith(
+      'commit',
+      expect.anything() as unknown as string
+    )
+  })
+
   it('sets the commit output from git when git is available (control)', async () => {
     // Arrange
     const git = getGitCommandManager()
@@ -203,5 +297,20 @@ describe('git-source-provider tests', () => {
     expect(mockDownloadRepository).not.toHaveBeenCalled()
     expect(git.checkout).toHaveBeenCalled()
     expect(mockSetOutput).toHaveBeenCalledWith('commit', commitSha)
+  })
+
+  it('does not configure auth on the REST API fallback path (control)', async () => {
+    // Arrange
+    mockCreateCommandManager.mockImplementation(async () => {
+      throw new Error('Git is not installed')
+    })
+    const settings = getSettings()
+
+    // Act
+    await gitSourceProvider.getSource(settings)
+
+    // Assert: the fallback returns with authHelper still null, so the finally
+    // block removes nothing. The added setOutput call does not change that.
+    expect(mockCreateAuthHelper).not.toHaveBeenCalled()
   })
 })
