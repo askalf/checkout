@@ -173,6 +173,23 @@ describe('git-source-provider tests', () => {
     expect(mockSetOutput).toHaveBeenCalledWith('commit', '')
   })
 
+  it('sets an empty commit output when downloading a ref that is not a SHA', async () => {
+    // Arrange
+    mockCreateCommandManager.mockImplementation(async () => {
+      throw new Error('Git is not installed')
+    })
+    const settings = getSettings()
+    // getInputs() leaves commit undefined when a non-SHA ref is given for another repository
+    settings.commit = undefined as unknown as string
+
+    // Act
+    await gitSourceProvider.getSource(settings)
+
+    // Assert
+    expect(mockDownloadRepository).toHaveBeenCalled()
+    expect(mockSetOutput).toHaveBeenCalledWith('commit', undefined)
+  })
+
   it('sets the commit output from git when git is available (control)', async () => {
     // Arrange
     const git = getGitCommandManager()
